@@ -101,6 +101,51 @@ check(
   `${wasRunning ? 'stop' : 'start'} action flips VM state`,
 );
 
+// ── Context Menu (context-menu acceptance check) ───────────────────
+// Right-click a demo VM, choose Stop (or Start), and assert that the state changes.
+await page.click('#tree >> text=Datacenter');
+await page.waitForTimeout(800);
+const demoRow = page.locator('tr[data-key*="web-prod"]').first();
+await demoRow.click({ button: 'right' });
+await page.waitForSelector('.context-menu', { timeout: 10000 });
+check(await page.locator('.context-menu').count() > 0, 'context-menu: right-click opens action menu');
+
+// Save a screenshot with the context menu open
+await page.screenshot({ path: 'context-menu.png' }).catch(() => {});
+
+// Context menu closes on Escape
+await page.keyboard.press('Escape');
+await page.waitForTimeout(300);
+check(await page.locator('.context-menu').count() === 0, 'context-menu: Escape closes action menu');
+
+// Right-click again to drive Stop (or Start) action and verify state flips
+await demoRow.click({ button: 'right' });
+await page.waitForSelector('.context-menu', { timeout: 10000 });
+const stopItem = page.locator('.context-menu button.menu-item:has-text("Stop")');
+const startItem = page.locator('.context-menu button.menu-item:has-text("Start")');
+const canStop = (await stopItem.count()) > 0 && !(await stopItem.getAttribute('disabled'));
+
+if (canStop) {
+  await stopItem.click();
+  await page.waitForTimeout(5500);
+  const statusCell = await page.locator('tr[data-key*="web-prod"] td').nth(2).textContent();
+  check(statusCell.includes('Stopped'), 'context-menu: Stop action flips VM state');
+} else if ((await startItem.count()) > 0 && !(await startItem.getAttribute('disabled'))) {
+  await startItem.click();
+  await page.waitForTimeout(5500);
+  const statusCell = await page.locator('tr[data-key*="web-prod"] td').nth(2).textContent();
+  check(statusCell.includes('Running'), 'context-menu: Start action flips VM state');
+}
+
+// Tree row right-click
+const treeDemoRow = page.locator('#tree .tree-item', { hasText: 'web-prod' }).first();
+if (await treeDemoRow.count() > 0) {
+  await treeDemoRow.click({ button: 'right' });
+  await page.waitForSelector('.context-menu', { timeout: 5000 });
+  check(await page.locator('.context-menu').count() > 0, 'context-menu: tree row right-click opens action menu');
+  await page.keyboard.press('Escape');
+}
+
 // Cluster health is green in demo.
 await page.click('#tree >> text=Cluster health');
 await page.waitForTimeout(2500);
