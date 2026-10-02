@@ -41,6 +41,28 @@ check(await page.locator('td:has-text("incus-demo-vm")').count() > 0, 'Incus dem
 check(await page.locator('td:has-text("incus-demo-container")').count() === 0, 'Incus demo container is not in the VM table');
 check(await page.locator('#tree >> text=incus-demo-container').count() > 0, 'Incus demo container in the tree as a CT');
 
+// ── grid-columns: persisted resize, reorder and sort ──────────────
+const grid = page.locator('[data-grid="vms"]');
+const nameHeader = grid.locator('th[data-column="name"]');
+const beforeWidth = await nameHeader.evaluate((el) => el.getBoundingClientRect().width);
+const resizeBox = await nameHeader.locator('.grid-resizer').boundingBox();
+await page.mouse.move(resizeBox.x + resizeBox.width / 2, resizeBox.y + resizeBox.height / 2);
+await page.mouse.down();
+await page.mouse.move(resizeBox.x + 42, resizeBox.y + resizeBox.height / 2);
+await page.mouse.up();
+await grid.locator('th[data-column="status"]').dragTo(nameHeader);
+await grid.locator('th[data-column="name"] .grid-sort').click();
+await page.reload();
+await page.waitForSelector('[data-grid="vms"] td:has-text("web-prod")');
+const columnOrder = await grid.locator('thead tr:first-child th[data-column]').evaluateAll((els) => els.map((el) => el.dataset.column));
+const afterWidth = await grid.locator('th[data-column="name"]').evaluate((el) => el.getBoundingClientRect().width);
+const sortedNames = await grid.locator('tbody tr:not(.grid-spacer) td:nth-child(3)').allTextContents();
+check(columnOrder[0] === 'status' && columnOrder[1] === 'name', 'grid-columns reorder persists after reload');
+check(afterWidth > beforeWidth + 20, 'grid-columns resize persists after reload');
+check(sortedNames.join('|') === [...sortedNames].sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })).join('|'), 'grid-columns sort persists and row order is correct');
+await grid.screenshot({ path: 'grid-columns.png' });
+check(true, 'grid-columns screenshot saved');
+
 // VM summary.
 await page.click('#tree >> text=web-prod');
 await page.waitForTimeout(1200);

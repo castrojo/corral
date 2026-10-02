@@ -3,6 +3,7 @@
 
 import { icon } from './icons.js';
 import { bindPools, loadPools, renderTreePools } from './pools.js';
+import { mountGrid } from './grid.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -18,6 +19,8 @@ let caps = { storageClass: '', canExpand: false, canSnapshot: false };
 let me = { login: '', name: '', admin: true, enforced: false };
 let availableNADs = [];
 let selected = { type: 'dc' }; // {type:'dc'} | {type:'node',name} | {type:'vm',key}
+// One selection model backs both the inventory grid and sidebar tree.
+const selectedVMKeys = new Set();
 let tab = 'summary';
 let rfb = null;        // noVNC connection
 let term = null;       // xterm instance
@@ -444,13 +447,25 @@ function renderTreeNamespaces(tree) {
 }
 
 function vmRow(vm, lvl) {
-  return treeRow({
+  const row = treeRow({
     lvl, icon: icon(vm.isTemplate ? 'template' : 'cube'), label: vm.name,
     sub: vm.isTemplate ? 'template' : vm.namespace,
     dot: vm.ready ? 'on' : (vm.running ? 'mid' : 'off'),
     sel: selected.type === 'vm' && selected.key === vmKey(vm),
     onclick: () => select({ type: 'vm', key: vmKey(vm) }),
   });
+  const check = document.createElement('input');
+  check.type = 'checkbox';
+  check.className = 'tree-vm-check';
+  check.checked = selectedVMKeys.has(vmKey(vm));
+  check.setAttribute('aria-label', `Select ${vm.name}`);
+  check.onclick = (event) => event.stopPropagation();
+  check.onchange = () => {
+    check.checked ? selectedVMKeys.add(vmKey(vm)) : selectedVMKeys.delete(vmKey(vm));
+    renderContent();
+  };
+  row.prepend(check);
+  return row;
 }
 
 // markRendered records the just-rendered state so the next poll tick doesn't
@@ -906,7 +921,7 @@ function renderDatacenter(main) {
     <div id="dc-images"><p class="muted">loading…</p></div>
     <h2 class="section">${icon('template')} Templates</h2>
     ${templateTable(vms.filter((v) => v.isTemplate))}`;
-  bindVMTable(main);
+  bindVMTable(main, shown);
   bindTemplateTable(main);
   main.querySelectorAll('[data-tagfilter]').forEach((b) => {
     b.onclick = () => { tagFilter = b.dataset.tagfilter || null; renderDatacenter(main); markRendered(); };
@@ -1016,7 +1031,7 @@ function renderNode(main, name) {
     <h2 style="font-size:1rem;margin:18px 0 8px">Virtual machines</h2>
     ${vmTable(nodeVMs)}
     ${nodeCTs.length ? `<h2 style="font-size:1rem;margin:18px 0 8px">Containers</h2>${ctTable(nodeCTs)}` : ''}`;
-  bindVMTable(main);
+  bindVMTable(main, nodeVMs);
   bindCTTable(main);
 }
 
@@ -1036,7 +1051,7 @@ function renderNamespace(main, name) {
     <h2 style="font-size:1rem;margin:18px 0 8px">Virtual machines</h2>
     ${vmTable(nsVMs)}
     ${nsCTs.length ? `<h2 style="font-size:1rem;margin:18px 0 8px">Containers</h2>${ctTable(nsCTs)}` : ''}`;
-  bindVMTable(main);
+  bindVMTable(main, nsVMs);
   bindCTTable(main);
 }
 
@@ -1152,53 +1167,50 @@ function vmTable(list) {
       <button class="btn sm" data-bulk="stop">${icon('stop')} Stop</button>
       <button class="btn sm" data-bulk="restart">${icon('restart')} Restart</button>
     </div>
-    <table><thead><tr>
-      <th class="check"><input type="checkbox" class="vm-check-all" title="Select all"></th>
-      <th>Name</th><th>Status</th><th>Node</th><th>Namespace</th><th>CPU</th><th>Mem</th><th>IP</th>
-    </tr></thead><tbody>
-    ${list.map((v) => `<tr data-key="${esc(vmKey(v))}">
-      <td class="check"><input type="checkbox" class="vm-check" value="${esc(vmKey(v))}"></td>
-      <td>${esc(v.name)}${(v.tags || []).map((t) => `<span class="chip mini">${esc(t)}</span>`).join('')}</td>
-      <td><span class="dot ${v.ready ? 'on' : (v.running || (v.status && (v.status.includes('Starting') || v.status.includes('Creating')))) ? 'mid' : 'off'}"></span> ${esc(v.status)}</td>
-      <td>${esc(v.node || '—')}</td><td>${esc(v.namespace)}</td>
-      <td>${v.cpu}</td><td>${esc(v.mem)}</td><td>${esc(v.ip || '—')}</td>
-    </tr>`).join('')}
-    </tbody></table>`;
+    <div class="vm-grid"></div>`;
 }
 
-function bindVMTable(root) {
-  // Row click opens the VM — except clicks landing in the checkbox cell.
-  root.querySelectorAll('tr[data-key]').forEach((tr) => {
-    tr.onclick = (e) => {
-      if (e.target.closest('.check')) return;
-      select({ type: 'vm', key: tr.dataset.key });
-    };
-  });
+const VM_GRID_COLUMNS = [
+  { id: 'name', label: 'Name', width: 220 },
+  { id: 'status', label: 'Status', width: 130, render: (vm) => {
+    const value = document.createElement('span');
+    const active = vm.running || (vm.status && (vm.status.includes('Starting') || vm.status.includes('Creating')));
+    value.innerHTML = `<span class="dot ${vm.ready ? 'on' : active ? 'mid' : 'off'}"></span> `;
+    value.append(document.createTextNode(vm.status || '—'));
+    return value;
+  } },
+  { id: 'node', label: 'Node', width: 150, value: (vm) => vm.node || '—' },
+  { id: 'namespace', label: 'Namespace', width: 150 },
+  { id: 'cpu', label: 'CPU', width: 80 },
+  { id: 'mem', label: 'Mem', width: 100 },
+  { id: 'ip', label: 'IP', width: 150, value: (vm) => vm.ip || '—' },
+  { id: 'tags', label: 'Tags', width: 160, value: (vm) => (vm.tags || []).join(', '), render: (vm) => {
+    const chips = document.createElement('span');
+    for (const t of vm.tags || []) {
+      const chip = document.createElement('span');
+      chip.className = 'chip mini';
+      chip.textContent = t;
+      chips.appendChild(chip);
+    }
+    return chips;
+  } },
+];
 
-  const checks = [...root.querySelectorAll('.vm-check')];
-  const all = root.querySelector('.vm-check-all');
+function bindVMTable(root, list) {
   const bar = root.querySelector('.bulkbar');
-  if (!checks.length || !bar) return;
-
-  const selectedKeys = () => checks.filter((c) => c.checked).map((c) => c.value);
+  if (!bar) return;
+  const selectedKeys = () => [...selectedVMKeys];
   const update = () => {
-    const n = selectedKeys().length;
+    const n = selectedVMKeys.size;
     bar.hidden = n === 0;
     bar.querySelector('.bulkbar-count').textContent = `${n} selected`;
-    if (all) {
-      all.checked = n > 0 && n === checks.length;
-      all.indeterminate = n > 0 && n < checks.length;
-    }
   };
-
-  checks.forEach((c) => {
-    c.onclick = (e) => e.stopPropagation();
-    c.onchange = update;
+  mountGrid(root.querySelector('.vm-grid'), {
+    id: 'vms', columns: VM_GRID_COLUMNS, rows: list, rowKey: vmKey,
+    selected: selectedVMKeys, checkClass: 'vm-check', checkAllClass: 'vm-check-all',
+    onRowClick: (vm) => select({ type: 'vm', key: vmKey(vm) }),
+    onSelectionChange: () => { update(); renderTree(); },
   });
-  if (all) {
-    all.onclick = (e) => e.stopPropagation();
-    all.onchange = () => { checks.forEach((c) => { c.checked = all.checked; }); update(); };
-  }
 
   bar.querySelectorAll('[data-bulk]').forEach((b) => {
     b.onclick = async (e) => {
@@ -1228,7 +1240,7 @@ function bindVMTable(root) {
 // the same mark-template endpoint to unmark/remove from here.
 function templateTable(list) {
   if (!list.length) return `<p class="muted">No templates. Mark a VM as a template from its detail page.</p>`;
-  return `<table><thead><tr><th>Name</th><th>Namespace</th><th>CPU</th><th>Mem</th><th></th></tr></thead><tbody>
+  return `<table class="template-table"><thead><tr><th>Name</th><th>Namespace</th><th>CPU</th><th>Mem</th><th></th></tr></thead><tbody>
     ${list.map((v) => `<tr data-key="${esc(vmKey(v))}">
       <td>${esc(v.name)}</td><td>${esc(v.namespace)}</td><td>${v.cpu}</td><td>${esc(v.mem)}</td>
       <td><button class="btn sm danger" data-untemplate="${esc(vmKey(v))}">Unmark</button></td>
@@ -1247,7 +1259,8 @@ function bindTemplateTable(root) {
       setTimeout(refresh, 600);
     };
   });
-  root.querySelectorAll('tr[data-key]').forEach((tr) => {
+  // Scoped to the template table: the inventory grid binds its own rows.
+  root.querySelectorAll('.template-table tr[data-key]').forEach((tr) => {
     tr.onclick = (e) => {
       if (e.target.closest('button')) return;
       select({ type: 'vm', key: tr.dataset.key });

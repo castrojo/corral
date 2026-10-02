@@ -181,7 +181,8 @@ main {
    that would only ever 403, leaving view-only surfaces (consoles, tabs). */
 body.read-only #btn-create,
 body.read-only .toolbar,
-body.read-only .hp-action { display: none !important; }
+body.read-only .hp-action,
+body.read-only .bulkbar button[data-bulk] { display: none !important; }
 
 .btn {
   display: inline-flex;
@@ -244,6 +245,37 @@ tbody tr { cursor: pointer; }
 tbody tr:hover { background: var(--panel-2); }
 th.check, td.check { width: 1px; padding-right: 0; cursor: default; }
 td.check input, th.check input { cursor: pointer; vertical-align: middle; }
+.tree-vm-check { flex: none; margin: 0 2px 0 0; }
+
+/* Reusable inventory grid: the table remains native for screen readers while
+   its toolbar supplies keyboard equivalents for drag resizing/reordering. */
+.data-grid { min-width: 0; }
+.grid-toolbar { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; }
+.grid-result-count { margin-left: auto; font-size: .78rem; }
+.grid-scroll { overflow: auto; max-height: 52vh; border: 1px solid var(--border); border-radius: var(--radius); }
+.data-grid table { table-layout: fixed; min-width: 100%; width: max-content; }
+.data-grid th, .data-grid td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; height: 39px; }
+.data-grid thead { position: sticky; top: 0; z-index: 2; background: var(--panel); }
+.data-grid th { position: relative; padding: 0; }
+.grid-sort { width: 100%; height: 38px; padding: 0 18px 0 10px; border: 0; background: none; color: var(--muted); text-align: left; text-transform: uppercase; letter-spacing: .04em; cursor: pointer; }
+.grid-sort:hover, .grid-sort:focus-visible { color: var(--text); background: var(--panel-2); }
+.grid-resizer { position: absolute; top: 4px; right: 0; bottom: 4px; width: 8px; border-right: 2px solid var(--border); cursor: col-resize; }
+.grid-resizer:hover, .grid-resizer:focus-visible { border-color: var(--accent); outline: 0; }
+.grid-filters input { width: calc(100% - 8px); margin: 3px 4px 5px; padding: 5px 7px; font-size: .75rem; }
+.grid-spacer { pointer-events: none; }
+.grid-spacer td { height: inherit; padding: 0; border: 0; }
+.grid-columns, .grid-views { position: relative; }
+.grid-columns summary, .grid-views summary { list-style: none; }
+.grid-menu { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; min-width: 330px; padding: 9px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 8px 24px #0008; }
+.grid-view-menu { min-width: 240px; }
+.grid-view-menu > label { display: flex; gap: 6px; align-items: center; }
+.grid-view-name { width: 130px; }
+.grid-column-option, .grid-saved-view { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; }
+.grid-column-actions { display: flex; }
+.grid-column-actions button, .grid-saved-view button { border: 0; background: none; color: var(--text); cursor: pointer; min-width: 28px; min-height: 28px; }
+.grid-column-actions button:hover, .grid-saved-view button:hover { background: var(--panel-2); }
+.grid-view-list { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 5px; }
+.grid-view-apply { flex: 1; text-align: left; }
 
 /* Bulk-action toolbar — appears above the VM table once rows are selected. */
 .bulkbar {
