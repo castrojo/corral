@@ -660,10 +660,10 @@ func demoMiB(s string) int {
 	var n int
 	switch {
 	case strings.HasSuffix(s, "Gi"):
-		fmt.Sscanf(s, "%d", &n)
+		_, _ = fmt.Sscanf(s, "%d", &n) // 0 on a bad value, as documented
 		return n * 1024
 	case strings.HasSuffix(s, "Mi"):
-		fmt.Sscanf(s, "%d", &n)
+		_, _ = fmt.Sscanf(s, "%d", &n)
 		return n
 	}
 	return 0

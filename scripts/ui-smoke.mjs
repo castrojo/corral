@@ -48,6 +48,9 @@ check(await page.locator('#tree >> text=incus-demo-container').count() > 0, 'Inc
 // ── grid-columns: persisted resize, reorder and sort ──────────────
 const grid = page.locator('[data-grid="vms"]');
 const nameHeader = grid.locator('th[data-column="name"]');
+// The grid sits below the dashboard widgets: centre it on screen before
+// driving the mouse at its header (the task panel covers the bottom edge).
+await nameHeader.evaluate((el) => el.scrollIntoView({ block: 'center' }));
 const beforeWidth = await nameHeader.evaluate((el) => el.getBoundingClientRect().width);
 const resizeBox = await nameHeader.locator('.grid-resizer').boundingBox();
 await page.mouse.move(resizeBox.x + resizeBox.width / 2, resizeBox.y + resizeBox.height / 2);
@@ -108,6 +111,10 @@ check(
 await page.click('#tree >> text=Datacenter');
 await page.waitForTimeout(800);
 const demoRow = page.locator('tr[data-key*="web-prod"]').first();
+// Scroll first: a scroll closes an open menu, and the row sits below the
+// dashboard.
+await demoRow.evaluate((el) => el.scrollIntoView({ block: 'center' }));
+await page.waitForTimeout(300);
 await demoRow.click({ button: 'right' });
 await page.waitForSelector('.context-menu', { timeout: 10000 });
 check(await page.locator('.context-menu').count() > 0, 'context-menu: right-click opens action menu');

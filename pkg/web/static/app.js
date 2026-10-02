@@ -403,7 +403,7 @@ function showContextMenu(e, items, triggerEl) {
   menu.style.left = `${Math.round(x)}px`;
   menu.style.top = `${Math.round(y)}px`;
 
-  activeContextMenu = { el: menu, trigger: triggerEl };
+  activeContextMenu = { el: menu, trigger: triggerEl, top: triggerEl?.getBoundingClientRect().top };
 
   // Focus the first enabled menu item
   const enabled = [...menu.querySelectorAll('button.menu-item:not(:disabled)')];
@@ -466,7 +466,14 @@ document.addEventListener('pointerdown', (e) => {
   }
 });
 window.addEventListener('resize', hideContextMenu);
-window.addEventListener('scroll', hideContextMenu, true);
+// Close on a scroll that moved the row the menu belongs to; a scroll that
+// leaves it in place (a widget body, a late scroll-into-view) must not
+// close the menu under the pointer.
+window.addEventListener('scroll', (e) => {
+  if (!activeContextMenu || activeContextMenu.el.contains(e.target)) return;
+  const t = activeContextMenu.trigger;
+  if (!t || !t.isConnected || Math.abs(t.getBoundingClientRect().top - activeContextMenu.top) > 4) hideContextMenu();
+}, true);
 
 function vmMenuItems(vm) {
   const capability = vm.capabilities || {};
