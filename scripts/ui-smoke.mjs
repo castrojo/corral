@@ -146,8 +146,11 @@ await page.keyboard.press('Escape');
 check(await page.locator('#palette[open]').count() === 0, 'command-palette: Escape closes the palette');
 
 // `?` lists the shortcuts; `/` focuses the tree filter, which narrows guests.
-await page.locator('body').focus();
+// Blur whatever the closed palette handed focus back to: a key typed into an
+// input is text, not a shortcut.
+await page.evaluate(() => document.activeElement?.blur());
 await page.keyboard.press('?');
+await page.waitForSelector('#shortcuts[open]', { timeout: 3000 }).catch(() => {});
 check(await page.locator('#shortcuts[open]').count() === 1, 'shortcuts: ? opens the shortcut overlay');
 await page.screenshot({ path: `${SHOTS}/shortcuts.png` });
 await page.keyboard.press('Escape');
