@@ -194,6 +194,9 @@ async function refresh(force = false) {
   }
   const fp = JSON.stringify([vms, cts, nodes, hostPower, selected, tab]);
   if (!force && fp === lastRenderFp) return; // nothing changed — keep the DOM
+  // A poll must not pull the rows out from under an open context menu; the
+  // next tick after it closes renders the change.
+  if (!force && activeContextMenu) return;
   lastRenderFp = fp;
 
   // Re-render, preserving scroll positions across the DOM swap.

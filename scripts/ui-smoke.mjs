@@ -121,17 +121,21 @@ check(await page.locator('.context-menu').count() === 0, 'context-menu: Escape c
 // Right-click again to drive Stop (or Start) action and verify state flips
 await demoRow.click({ button: 'right' });
 await page.waitForSelector('.context-menu', { timeout: 10000 });
-const stopItem = page.locator('.context-menu button.menu-item:has-text("Stop")');
-const startItem = page.locator('.context-menu button.menu-item:has-text("Start")');
-const canStop = (await stopItem.count()) > 0 && !(await stopItem.getAttribute('disabled'));
+// Exact labels: "Start" must not match "Restart". A disabled item carries
+// disabled="" — an empty, falsy attribute — so ask for the enabled state.
+const menuItem = (label) => page.locator('.context-menu button.menu-item')
+  .filter({ has: page.locator('.menu-label', { hasText: new RegExp(`^${label}$`) }) });
+const stopItem = menuItem('Stop');
+const startItem = menuItem('Start');
+const canStop = (await stopItem.count()) > 0 && await stopItem.first().isEnabled();
 
 if (canStop) {
-  await stopItem.click();
+  await stopItem.first().click();
   await page.waitForTimeout(5500);
   const statusCell = await page.locator('tr[data-key*="web-prod"] td').nth(2).textContent();
   check(statusCell.includes('Stopped'), 'context-menu: Stop action flips VM state');
-} else if ((await startItem.count()) > 0 && !(await startItem.getAttribute('disabled'))) {
-  await startItem.click();
+} else if ((await startItem.count()) > 0 && await startItem.first().isEnabled()) {
+  await startItem.first().click();
   await page.waitForTimeout(5500);
   const statusCell = await page.locator('tr[data-key*="web-prod"] td').nth(2).textContent();
   check(statusCell.includes('Running'), 'context-menu: Start action flips VM state');
