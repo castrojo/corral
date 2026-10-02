@@ -8,6 +8,7 @@
 // Fails (exit 1) on any assertion or page error.
 // For reproducible documentation images, see scripts/capture-docs.mjs.
 
+import { mkdir } from 'node:fs/promises';
 import { chromium } from 'playwright';
 
 const BASE = process.env.CORRAL_URL || 'http://127.0.0.1:8899/';
@@ -45,6 +46,26 @@ await page.click('#tree >> text=web-prod');
 await page.waitForTimeout(1200);
 check(await page.locator('.tab.active:has-text("Summary")').count() === 1, 'VM summary tab opens');
 check((await page.textContent('#tab-body')).includes('corral ssh web-prod'), 'summary shows SSH hint');
+
+// Named acceptance check: console-popout. The control must create a separate
+// browser page and that page must complete the RFB handshake against demo mode.
+await page.click('[data-tab="console"]');
+await page.waitForSelector('#vnc-popout');
+const popupPromise = page.waitForEvent('popup');
+await page.click('#vnc-popout');
+const consolePopup = await popupPromise;
+await consolePopup.waitForSelector('#vnc-screen[data-connected="true"]', { timeout: 10000 }).catch(() => {});
+check(
+  await consolePopup.locator('#vnc-screen[data-connected="true"]').count() === 1,
+  'console-popout opens a new window and connects',
+);
+check(await consolePopup.locator('#vnc-one').count() === 1, 'console offers 1:1 scaling');
+check(await consolePopup.locator('#vnc-paste').count() === 1, 'console offers clipboard typing');
+check(await consolePopup.locator('[data-send-keys="cad"]').count() === 1, 'console offers send-keys');
+await mkdir('test-results', { recursive: true });
+await consolePopup.screenshot({ path: 'test-results/console-popout.png' });
+await consolePopup.close();
+await page.click('[data-tab="summary"]');
 
 // Stateful action: toggle power and watch the status flip. State-agnostic so
 // the script also works against an already-toggled long-running server.

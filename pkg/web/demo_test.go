@@ -7,7 +7,9 @@ package web
 // `corral web --demo`.
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,6 +18,7 @@ import (
 	"github.com/tuna-os/corral/pkg/config"
 	"github.com/tuna-os/corral/pkg/qemu"
 	"github.com/tuna-os/corral/pkg/registry"
+	"golang.org/x/net/websocket"
 )
 
 func newDemoServer(t *testing.T) *httptest.Server {
@@ -57,6 +60,45 @@ func getJSON(t *testing.T, srv *httptest.Server, path string, out any) {
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 		t.Fatalf("GET %s: decode: %v", path, err)
+	}
+}
+
+func TestDemoVNCCompletesRFBHandshake(t *testing.T) {
+	srv := newDemoServer(t)
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/api/vnc/corral-vms/web-prod"
+	ws, err := websocket.Dial(wsURL, "", srv.URL)
+	if err != nil {
+		t.Fatalf("dial demo console: %v", err)
+	}
+	defer func() { _ = ws.Close() }()
+
+	version := make([]byte, 12)
+	if _, err := io.ReadFull(ws, version); err != nil || string(version) != "RFB 003.008\n" {
+		t.Fatalf("server version = %q, err=%v", version, err)
+	}
+	if _, err := ws.Write(version); err != nil {
+		t.Fatalf("write client version: %v", err)
+	}
+	security := make([]byte, 2)
+	if _, err := io.ReadFull(ws, security); err != nil || !bytes.Equal(security, []byte{1, 1}) {
+		t.Fatalf("security types = %v, err=%v", security, err)
+	}
+	if _, err := ws.Write([]byte{1}); err != nil {
+		t.Fatalf("choose security: %v", err)
+	}
+	result := make([]byte, 4)
+	if _, err := io.ReadFull(ws, result); err != nil || !bytes.Equal(result, make([]byte, 4)) {
+		t.Fatalf("security result = %v, err=%v", result, err)
+	}
+	if _, err := ws.Write([]byte{1}); err != nil {
+		t.Fatalf("write ClientInit: %v", err)
+	}
+	serverInit := make([]byte, 24)
+	if _, err := io.ReadFull(ws, serverInit); err != nil {
+		t.Fatalf("read ServerInit: %v", err)
+	}
+	if width, height := int(serverInit[0])<<8|int(serverInit[1]), int(serverInit[2])<<8|int(serverInit[3]); width != 800 || height != 600 {
+		t.Fatalf("demo framebuffer = %dx%d, want 800x600", width, height)
 	}
 }
 

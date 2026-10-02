@@ -23,6 +23,11 @@ let rfb = null;        // noVNC connection
 let term = null;       // xterm instance
 let ttyWS = null;      // serial console websocket
 
+// A console deep link is also the pop-out contract. It uses the canonical VM
+// key rather than only a name, so duplicate names on peers/contexts are safe.
+const consoleRoute = new URLSearchParams(location.search).get('console');
+let consoleRouteApplied = false;
+
 // ── API ───────────────────────────────────────────────────────────
 
 async function api(path, opts = {}) {
@@ -169,6 +174,20 @@ async function refresh(force = false) {
   offlineShown = false;
   if (treeView === 'pool') await loadPools();
   try { cts = await api('/api/cts'); } catch { cts = []; } // best-effort — don't fail the whole refresh over CTs
+  // A pop-out console opens straight onto the console tab, which the guard
+  // below never renders on poll — render it once here.
+  let renderPopout = false;
+  if (consoleRoute && !consoleRouteApplied) {
+    consoleRouteApplied = true;
+    const vm = findVM(consoleRoute);
+    if (vm) {
+      selected = { type: 'vm', key: consoleRoute };
+      tab = 'console';
+      document.body.classList.add('console-popout');
+      document.title = `${vm.name} console · Corral`;
+      renderPopout = true;
+    }
+  }
   const fp = JSON.stringify([vms, cts, nodes, hostPower, selected, tab]);
   if (!force && fp === lastRenderFp) return; // nothing changed — keep the DOM
   lastRenderFp = fp;
@@ -180,7 +199,7 @@ async function refresh(force = false) {
   const contentScroll = contentEl ? contentEl.scrollTop : 0;
   renderTree();
   // Don't clobber live consoles (or the multiview grid) on poll.
-  if (tab !== 'console' && tab !== 'terminal' && selected.type !== 'multiview') renderContent();
+  if (renderPopout || (tab !== 'console' && tab !== 'terminal' && selected.type !== 'multiview')) renderContent();
   if (treeEl) treeEl.scrollTop = treeScroll;
   if (contentEl) contentEl.scrollTop = contentScroll;
 }
@@ -474,66 +493,120 @@ function renderContent() {
   return renderDatacenter(main);
 }
 
-// ── Multiview: a grid of live view-only consoles ──────────────────
-// Watch 4–6 VMs at once — built for monitoring automated GUI testing.
+// ── Multiview: persisted, rearrangeable live consoles ─────────────
+// Preset sizes make resizing keyboard-accessible; pointer users can also drag
+// a tile by its title. Arrow buttons are the equivalent of that drag action.
 
 let multiviewRFBs = [];
+const MULTIVIEW_KEY = 'corral.multiview.v1';
 
 function disconnectMultiview() {
   for (const r of multiviewRFBs) { try { r.disconnect(); } catch { /* gone */ } }
   multiviewRFBs = [];
 }
 
+function loadMultiviewLayout() {
+  try { return JSON.parse(localStorage.getItem(MULTIVIEW_KEY) || '{}'); }
+  catch { return {}; }
+}
+
+function saveMultiviewLayout(layout) {
+  try { localStorage.setItem(MULTIVIEW_KEY, JSON.stringify(layout)); } catch { /* private mode */ }
+}
+
+function moveMultiviewTile(grid, tile, delta, layout) {
+  const tiles = [...grid.querySelectorAll('.mv-tile')];
+  const from = tiles.indexOf(tile);
+  const to = Math.max(0, Math.min(tiles.length - 1, from + delta));
+  if (from === to) return;
+  if (to < from) grid.insertBefore(tile, tiles[to]);
+  else grid.insertBefore(tile, tiles[to].nextSibling);
+  layout.order = [...grid.querySelectorAll('.mv-tile')].map((el) => el.dataset.key);
+  saveMultiviewLayout(layout);
+  tile.querySelector('.mv-title').focus();
+}
+
 async function renderMultiview(main) {
   disconnectMultiview();
   const running = vms.filter((v) => v.running);
-  const shown = running.slice(0, 6);
+  const layout = loadMultiviewLayout();
+  const rank = new Map((layout.order || []).map((key, i) => [key, i]));
+  const shown = running.slice(0, 6).sort((a, b) =>
+    (rank.get(vmKey(a)) ?? 999) - (rank.get(vmKey(b)) ?? 999));
   main.innerHTML = `
     <div class="page-head"><h1>${icon('cube')} Multiview</h1>
       <span class="muted">${running.length} running VM${running.length === 1 ? '' : 's'}${running.length > 6 ? ' — showing first 6' : ''}</span>
     </div>
-    ${shown.length ? `<div id="mv-grid" class="mv-grid" data-count="${shown.length}"></div>`
+    ${shown.length ? `<p class="muted mv-help">Drag titles to rearrange, or use Move and Size. Layout is saved in this browser.</p>
+      <div id="mv-grid" class="mv-grid"></div>`
       : `<p class="console-msg">No running VMs. Start some and they appear here, live.</p>`}`;
   if (!shown.length) return;
 
   let RFB;
   try {
-    ({ default: RFB } = await import(
-      './vendor/novnc-rfb.esm.js'));
+    ({ default: RFB } = await import('./vendor/novnc-rfb.esm.js'));
   } catch (e) {
     $('#mv-grid').innerHTML = `<p class="console-msg">noVNC failed to load: ${esc(e.message)}</p>`;
     return;
   }
   const grid = $('#mv-grid');
+  let dragged = null;
   for (const vm of shown) {
-    const tile = document.createElement('div');
-    tile.className = 'mv-tile';
-    tile.innerHTML = `<div class="mv-title">${esc(vm.name)} <span class="muted">${esc(vm.namespace)}</span></div>
-      <div class="mv-screen"></div>`;
-    tile.querySelector('.mv-title').onclick = () => {
+    const key = vmKey(vm);
+    const tile = document.createElement('section');
+    tile.className = `mv-tile mv-${layout.sizes?.[key] || 'normal'}`;
+    tile.dataset.key = key;
+    tile.innerHTML = `<div class="mv-title" draggable="true" tabindex="0" aria-label="${esc(vm.name)} console tile; drag to rearrange">
+        <button class="mv-open" title="Open console tab">${esc(vm.name)}</button>
+        <span class="muted">${esc(vm.namespace)}</span><span class="spacer"></span>
+        <button class="btn xs mv-left" aria-label="Move ${esc(vm.name)} left">←</button>
+        <button class="btn xs mv-right" aria-label="Move ${esc(vm.name)} right">→</button>
+        <label class="mv-size-label">Size <select class="mv-size" aria-label="Resize ${esc(vm.name)} tile">
+          <option value="normal">Normal</option><option value="wide">Wide</option>
+          <option value="tall">Tall</option><option value="large">Large</option>
+        </select></label>
+      </div><div class="mv-screen"></div>`;
+    tile.querySelector('.mv-size').value = layout.sizes?.[key] || 'normal';
+    tile.querySelector('.mv-open').onclick = () => {
       disconnectMultiview();
-      select({ type: 'vm', key: vmKey(vm) });
+      select({ type: 'vm', key });
       tab = 'console';
       renderContent();
     };
+    tile.querySelector('.mv-left').onclick = () => moveMultiviewTile(grid, tile, -1, layout);
+    tile.querySelector('.mv-right').onclick = () => moveMultiviewTile(grid, tile, 1, layout);
+    tile.querySelector('.mv-size').onchange = (e) => {
+      tile.className = `mv-tile mv-${e.target.value}`;
+      layout.sizes ||= {};
+      layout.sizes[key] = e.target.value;
+      saveMultiviewLayout(layout);
+    };
+    const title = tile.querySelector('.mv-title');
+    title.ondragstart = () => { dragged = tile; tile.classList.add('dragging'); };
+    title.ondragend = () => { dragged = null; tile.classList.remove('dragging'); };
+    tile.ondragover = (e) => { if (dragged && dragged !== tile) e.preventDefault(); };
+    tile.ondrop = (e) => {
+      e.preventDefault();
+      if (!dragged || dragged === tile) return;
+      const tiles = [...grid.querySelectorAll('.mv-tile')];
+      moveMultiviewTile(grid, dragged, tiles.indexOf(tile) - tiles.indexOf(dragged), layout);
+    };
     grid.appendChild(tile);
     try {
-      const rfb = new RFB(tile.querySelector('.mv-screen'), wsURL('vnc', vm));
-      rfb.viewOnly = false; // click tile canvas to focus and interact directly
-      rfb.scaleViewport = true;
-      tile.onclick = (e) => {
-        if (!e.target.closest('.mv-title')) {
-          rfb.focus();
-        }
-      };
-      rfb.addEventListener('disconnect', () => {
+      const tileRFB = new RFB(tile.querySelector('.mv-screen'), wsURL('vnc', vm));
+      tileRFB.viewOnly = false;
+      tileRFB.scaleViewport = true;
+      tile.querySelector('.mv-screen').onclick = () => tileRFB.focus();
+      tileRFB.addEventListener('disconnect', () => {
         tile.querySelector('.mv-screen').innerHTML = `<p class="console-msg">disconnected</p>`;
       });
-      multiviewRFBs.push(rfb);
+      multiviewRFBs.push(tileRFB);
     } catch {
       tile.querySelector('.mv-screen').innerHTML = `<p class="console-msg">connect failed</p>`;
     }
   }
+  layout.order = shown.map(vmKey);
+  saveMultiviewLayout(layout);
 }
 
 // ── Host power (host-power plugins) ──────────────────────────────
@@ -2022,17 +2095,146 @@ function toggleFullscreen(el) {
 // fit addon both key off it — give them one.
 document.addEventListener('fullscreenchange', () => window.dispatchEvent(new Event('resize')));
 
+const CONSOLE_TABS_KEY = 'corral.consoleTabs.v1';
+function loadConsoleTabs() {
+  try { return JSON.parse(sessionStorage.getItem(CONSOLE_TABS_KEY) || '[]'); }
+  catch { return []; }
+}
+function saveConsoleTabs(keys) {
+  try { sessionStorage.setItem(CONSOLE_TABS_KEY, JSON.stringify(keys)); } catch { /* private mode */ }
+}
+function rememberConsole(vm) {
+  const key = vmKey(vm);
+  const keys = loadConsoleTabs().filter((k) => findVM(k));
+  if (!keys.includes(key)) keys.push(key);
+  saveConsoleTabs(keys);
+  return keys;
+}
+function openConsole(vm) {
+  disconnectConsoles();
+  selected = { type: 'vm', key: vmKey(vm) };
+  tab = 'console';
+  renderTree();
+  renderContent();
+  markRendered();
+}
+function consoleTabStrip(vm) {
+  const keys = rememberConsole(vm);
+  return `<div class="console-tabs" role="tablist" aria-label="Open consoles">
+    ${keys.map((key) => {
+      const item = findVM(key);
+      if (!item) return '';
+      const active = key === vmKey(vm);
+      return `<span class="console-tab ${active ? 'active' : ''}">
+        <button role="tab" aria-selected="${active}" data-console-tab="${esc(key)}">${esc(item.name)}</button>
+        <button class="console-tab-close" data-console-close="${esc(key)}" aria-label="Close ${esc(item.name)} console tab">×</button>
+      </span>`;
+    }).join('')}
+  </div>`;
+}
+function bindConsoleTabs(body, vm) {
+  body.querySelectorAll('[data-console-tab]').forEach((button) => {
+    button.onclick = () => {
+      const target = findVM(button.dataset.consoleTab);
+      if (target) openConsole(target);
+    };
+  });
+  body.querySelectorAll('[data-console-close]').forEach((button) => {
+    button.onclick = () => {
+      const keys = loadConsoleTabs().filter((key) => key !== button.dataset.consoleClose);
+      saveConsoleTabs(keys);
+      if (button.dataset.consoleClose === vmKey(vm) && keys.length) {
+        const target = findVM(keys[keys.length - 1]);
+        if (target) return openConsole(target);
+      }
+      if (button.dataset.consoleClose === vmKey(vm)) {
+        disconnectConsoles();
+        tab = 'summary';
+        return renderContent();
+      }
+      button.closest('.console-tab')?.remove();
+    };
+  });
+}
+
+function popOutConsole(vm) {
+  const key = vmKey(vm);
+  const url = `${location.pathname}?console=${encodeURIComponent(key)}`;
+  window.open(url, `corral-console-${key.replace(/[^a-z0-9]/gi, '-')}`, 'popup,width=1100,height=760');
+}
+
+function sendChord(keys) {
+  if (!rfb) return;
+  for (const [keysym, code] of keys) rfb.sendKey(keysym, code, true);
+  for (const [keysym, code] of [...keys].reverse()) rfb.sendKey(keysym, code, false);
+  rfb.focus();
+}
+
+function sendTextAsKeys(text) {
+  if (!rfb) return;
+  for (const char of text.replace(/\r\n?/g, '\n')) {
+    const point = char.codePointAt(0);
+    const keysym = char === '\n' ? 0xff0d : char === '\t' ? 0xff09
+      : point <= 0xff ? point : 0x01000000 | point;
+    rfb.sendKey(keysym, '', undefined);
+  }
+  rfb.focus();
+}
+
+async function pasteConsoleText() {
+  let text = '';
+  try { text = await navigator.clipboard.readText(); }
+  catch { text = prompt('Paste text to type into the guest:', '') ?? ''; }
+  if (text) sendTextAsKeys(text);
+}
+
+function bindConsoleControls(vm, body, screen) {
+  bindConsoleTabs(body, vm);
+  $('#vnc-popout').onclick = () => popOutConsole(vm);
+  $('#vnc-fullscreen').onclick = () => toggleFullscreen(screen);
+  const applyScale = (mode) => {
+    if (!rfb) return;
+    rfb.scaleViewport = mode === 'fit';
+    rfb.resizeSession = mode === 'remote';
+  };
+  body.querySelectorAll('[name=vnc-scale-mode]').forEach((input) => {
+    input.onchange = () => { if (input.checked) applyScale(input.value); };
+  });
+  $('#vnc-paste').onclick = pasteConsoleText;
+  body.querySelectorAll('[data-send-keys]').forEach((button) => {
+    button.onclick = () => {
+      const key = button.dataset.sendKeys;
+      if (key === 'cad') return rfb?.sendCtrlAltDel();
+      if (key === 'print') return sendChord([[0xff61, 'PrintScreen']]);
+      const f = Number(key.slice(1));
+      sendChord([[0xffe3, 'ControlLeft'], [0xffe9, 'AltLeft'], [0xffbd + f, `F${f}`]]);
+    };
+  });
+}
+
 async function connectVNC(vm, body) {
   if (!vm.running) {
     body.innerHTML = `<p class="console-msg">VM is not running — start it to open the console.</p>`;
     return;
   }
-  body.innerHTML = `
+  body.innerHTML = `${consoleTabStrip(vm)}
     <div class="toolbar console-bar">
+      <button class="btn sm" id="vnc-popout" title="Open this console in its own browser window">Pop out</button>
       <button class="btn sm" id="vnc-fullscreen" title="Fullscreen (Esc to leave)">${icon('expand')} Fullscreen</button>
-      <label class="console-opt"><input type="checkbox" id="vnc-scale" checked> Scale to fit (local)</label>
-      <label class="console-opt" title="Ask the guest to change its resolution to match the window (needs guest support)">
-        <input type="checkbox" id="vnc-resize"> Remote resize</label>
+      <fieldset class="console-scale" aria-label="Console scale">
+        <label class="console-opt"><input type="radio" name="vnc-scale-mode" id="vnc-scale" value="fit" checked> Fit</label>
+        <label class="console-opt"><input type="radio" name="vnc-scale-mode" id="vnc-one" value="one"> 1:1</label>
+        <label class="console-opt" title="Ask the guest to match the window (needs guest support)">
+          <input type="radio" name="vnc-scale-mode" id="vnc-resize" value="remote"> Remote resize</label>
+      </fieldset>
+      <button class="btn sm" id="vnc-paste">Paste as text</button>
+      <details class="send-keys"><summary class="btn sm">Send keys</summary>
+        <div class="send-keys-menu" role="menu">
+          <button role="menuitem" data-send-keys="cad">Ctrl+Alt+Del</button>
+          ${[1, 2, 3, 4, 5, 6, 7].map((f) => `<button role="menuitem" data-send-keys="f${f}">Ctrl+Alt+F${f}</button>`).join('')}
+          <button role="menuitem" data-send-keys="print">PrtSc</button>
+        </div>
+      </details>
     </div>
     <div id="vnc-screen"><p class="console-msg">Connecting…</p></div>`;
   try {
@@ -2043,18 +2245,11 @@ async function connectVNC(vm, body) {
     rfb = new RFB(screen, wsURL('vnc', vm));
     rfb.scaleViewport = true;  // noVNC local scaling — fits any window size
     rfb.resizeSession = false; // remote resize is opt-in (guest must support it)
-
-    $('#vnc-fullscreen').onclick = () => toggleFullscreen(screen);
-    $('#vnc-scale').onchange = (e) => { if (rfb) rfb.scaleViewport = e.target.checked; };
-    $('#vnc-resize').onchange = (e) => {
-      if (!rfb) return;
-      rfb.resizeSession = e.target.checked;
-      if (e.target.checked) {
-        // The two modes fight each other; remote resize wins when enabled.
-        $('#vnc-scale').checked = false;
-        rfb.scaleViewport = false;
-      }
-    };
+    bindConsoleControls(vm, body, screen);
+    rfb.addEventListener('connect', () => {
+      screen.dataset.connected = 'true';
+      screen.setAttribute('aria-label', `${vm.name} console connected`);
+    });
     rfb.addEventListener('disconnect', () => {
       if (tab === 'console') {
         screen.innerHTML = `<p class="console-msg">Console disconnected.<br>

@@ -76,6 +76,10 @@ func Serve(addr string) error {
 // newMux builds the HTTP router (wrapped in the admin gate). Split out from
 // Serve so tests can exercise the full route table with httptest.
 func newMux() (http.Handler, error) {
+	// Capture this for the router being built, then clear it so a demo mux in
+	// one test cannot turn later production-style muxes into demo consoles.
+	useDemoConsole := demoEnabled
+	demoEnabled = false
 	sub, err := fs.Sub(staticFS, "static")
 	if err != nil {
 		return nil, err
@@ -215,7 +219,14 @@ func newMux() (http.Handler, error) {
 			},
 		}
 	}
-	mux.Handle("GET /api/vnc/{ns}/{name}", wsServer(vncBridge))
+	vncHandler := websocket.Handler(vncBridge)
+	if useDemoConsole {
+		vncHandler = func(ws *websocket.Conn) {
+			defer func() { _ = ws.Close() }()
+			serveDemoVNC(ws)
+		}
+	}
+	mux.Handle("GET /api/vnc/{ns}/{name}", wsServer(vncHandler))
 	mux.Handle("GET /api/tty/{ns}/{name}", wsServer(ttyBridge))
 	mux.Handle("GET /api/rdp/{ns}/{name}", wsServer(rdpBridge))
 
