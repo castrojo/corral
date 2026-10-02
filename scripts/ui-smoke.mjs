@@ -132,12 +132,12 @@ const canStop = (await stopItem.count()) > 0 && await stopItem.first().isEnabled
 if (canStop) {
   await stopItem.first().click();
   await page.waitForTimeout(5500);
-  const statusCell = await page.locator('tr[data-key*="web-prod"] td').nth(2).textContent();
+  const statusCell = await page.locator('tr[data-key*="web-prod"]').first().innerText(); // column order is user-configurable
   check(statusCell.includes('Stopped'), 'context-menu: Stop action flips VM state');
 } else if ((await startItem.count()) > 0 && await startItem.first().isEnabled()) {
   await startItem.first().click();
   await page.waitForTimeout(5500);
-  const statusCell = await page.locator('tr[data-key*="web-prod"] td').nth(2).textContent();
+  const statusCell = await page.locator('tr[data-key*="web-prod"]').first().innerText(); // column order is user-configurable
   check(statusCell.includes('Running'), 'context-menu: Start action flips VM state');
 }
 
