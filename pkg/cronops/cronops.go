@@ -293,7 +293,7 @@ rm -f /tmp/"$FNAME"
 kubectl delete vmexport %[1]s-export -n %[2]s --ignore-not-found
 
 rclone lsf "%[3]s" --files-only | grep "^%[1]s-" | sort | head -n -%[4]d | while IFS= read -r f; do
-  [ -n "$f" ] && rclone deletefile "%[3]s/$f"
+  [ -n "$f" ] && rclone deletefile -- "%[3]s/$f"
 done`, vm, ns, dest, keep)
 }
 
