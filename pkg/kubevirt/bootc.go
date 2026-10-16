@@ -264,8 +264,10 @@ func builderImage() string {
 //     (--root-ssh-authorized-keys is a no-op on composefs).
 //   - ostree (server bootc: ships bootupd) → plain `bootc install to-disk` (xfs).
 //
-// Both paths add `console=ttyS0 systemd.wants=sshd.service` to the BLS entries —
-// desktop images ship sshd disabled, and corral reaches VMs over SSH.
+// Both paths add `console=ttyS0 systemd.wants=sshd.service systemd.wants=ssh.service`
+// to the BLS entries — desktop images ship sshd disabled, and corral reaches VMs
+// over SSH. Debian and Ubuntu name the unit ssh.service; their sshd.service is
+// only an alias that `systemctl enable` creates, so a disabled image has none.
 // builderScript returns the cloud-init the builder VM runs, with the image,
 // SSH key and kernel arguments substituted in.
 func builderScript(imageURI, sshPublicKey, provisionScript string, kargs []string) string {
@@ -529,7 +531,7 @@ write_files:
       # console + sshd on the BLS entries (composefs: on ESP).
       for E in /mnt/esp/loader/entries/*.conf; do
         [ -f "$E" ] && (grep -q 'systemd.wants=sshd.service' "$E" \
-          || sed -i 's#^options #options console=ttyS0 systemd.wants=sshd.service #' "$E")
+          || sed -i 's#^options #options console=ttyS0 systemd.wants=sshd.service systemd.wants=ssh.service #' "$E")
       done
       sync; umount /mnt/esp
       if [ "$COMPOSEFS" != 1 ]; then
@@ -537,7 +539,7 @@ write_files:
         mkdir -p /mnt/root; mount /dev/disk/by-id/virtio-target-part3 /mnt/root 2>/dev/null
         for E in /mnt/root/boot/loader/entries/*.conf; do
           [ -f "$E" ] && (grep -q 'systemd.wants=sshd.service' "$E" \
-            || sed -i 's#^options #options console=ttyS0 systemd.wants=sshd.service #' "$E")
+            || sed -i 's#^options #options console=ttyS0 systemd.wants=sshd.service systemd.wants=ssh.service #' "$E")
         done
         sync; umount /mnt/root 2>/dev/null
       fi

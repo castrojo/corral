@@ -54,6 +54,7 @@ func TestRenderBuilderVM(t *testing.T) {
 		"bootc_composefs-",                      // composefs initrd fixup target
 		"state/os/default/var/roothome/.ssh",    // composefs manual key injection
 		"systemd.wants=sshd.service",            // sshd karg
+		"systemd.wants=ssh.service",             // Debian/Ubuntu sshd unit name
 		"CORRAL_BUILD_OK",                       // success marker
 	} {
 		if !strings.Contains(script, want) {
