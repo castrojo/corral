@@ -89,6 +89,7 @@ func Serve(addr string, allowedHosts ...string) error {
 	}
 	// Sync ServerState into package globals for handlers that haven't migrated yet.
 	store = state.GetStore()
+	consoleDialer = state.GetConsoleDialer()
 	defaultRunner = state.GetRunner()
 	_ = state // Retain reference for future handler migration to accept *ServerState parameter
 	kubevirt.ProxyTags = config.TailnetTags()
