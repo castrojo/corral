@@ -18,8 +18,56 @@ import (
 	"github.com/tuna-os/corral/pkg/shell"
 )
 
+// ServerState encapsulates dependency injection for HTTP handlers.
+// It provides controlled access to shared resources without global mutable state.
+type ServerState struct {
+	store         *registry.Store
+	consoleDialer kubevirt.ConsoleDialer
+	commandRunner shell.Runner
+}
+
+// NewServerState initializes ServerState with production defaults.
+func NewServerState() (*ServerState, error) {
+	s, err := registry.NewStore()
+	if err != nil {
+		return nil, err
+	}
+	return &ServerState{
+		store:         s,
+		consoleDialer: kubevirt.RealConsoleDialer{},
+		commandRunner: shell.DefaultKubectl,
+	}, nil
+}
+
+// GetStore returns the registry store.
+func (ss *ServerState) GetStore() *registry.Store {
+	return ss.store
+}
+
+// GetConsoleDialer returns the console dialer.
+func (ss *ServerState) GetConsoleDialer() kubevirt.ConsoleDialer {
+	return ss.consoleDialer
+}
+
+// GetRequestRunner returns a shell runner bound to the request context.
+func (ss *ServerState) GetRequestRunner(r *http.Request) shell.Runner {
+	return shell.Bind(r.Context(), ss.commandRunner)
+}
+
+// GetRunner returns the command runner.
+func (ss *ServerState) GetRunner() shell.Runner {
+	return ss.commandRunner
+}
+
+// SetRunner updates the command runner. Used primarily for testing.
+func (ss *ServerState) SetRunner(runner shell.Runner) {
+	ss.commandRunner = runner
+	defaultRunner = runner // Sync to global for backward compatibility with existing handlers
+}
+
 // defaultRunner is the command runner used by handlers that shell out
 // (vmiIndex, handleNodes, handleExport). Defaults to shell.Real; set in tests.
+// TODO: Once all handlers accept ServerState via context, this global can be removed.
 var defaultRunner shell.Runner = shell.DefaultKubectl
 
 // requestRunner is defaultRunner bound to r, so the commands a handler runs
@@ -35,9 +83,14 @@ var store *registry.Store
 
 // Serve starts the web UI on addr and blocks.
 func Serve(addr string, allowedHosts ...string) error {
-	if s, err := registry.NewStore(); err == nil {
-		store = s
+	state, err := NewServerState()
+	if err != nil {
+		return err
 	}
+	// Sync ServerState into package globals for handlers that haven't migrated yet.
+	store = state.GetStore()
+	defaultRunner = state.GetRunner()
+	_ = state // Retain reference for future handler migration to accept *ServerState parameter
 	kubevirt.ProxyTags = config.TailnetTags()
 
 	// Assemble theme: config.yaml → CLI flags override → serve.
