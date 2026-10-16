@@ -114,7 +114,7 @@ func newBuildContext(spec *Spec, base, authorizedKey string) (*buildContext, err
 	// layered: the unit is what prints the readiness marker, and a run that
 	// asked for no hook scripts still wants to know the guest got that far.
 	ctx.SystemFiles["/usr/libexec/corral-postboot"] = contextFile{
-		Content: postBootScript(spec.bootScripts()),
+		Content: postBootScript(spec.BootScripts()),
 		Mode:    0o755,
 	}
 	ctx.SystemFiles["/usr/lib/systemd/system/"+PostBootUnit] = contextFile{
@@ -128,7 +128,7 @@ func newBuildContext(spec *Spec, base, authorizedKey string) (*buildContext, err
 	}
 	ctx.BuildScripts["10-corral-accounts.sh"] = accounts
 	ctx.BuildScripts["20-corral-services.sh"] = serviceScript(spec)
-	for i, script := range spec.imageScripts() {
+	for i, script := range spec.ImageScripts() {
 		ctx.BuildScripts[fmt.Sprintf("50-corral-provision-%02d.sh", i+1)] = script
 	}
 	return ctx, nil
@@ -413,7 +413,7 @@ func serviceScript(spec *Spec) string {
   if systemctl enable "$unit" 2>/dev/null; then echo "corral: enabled $unit"; break; fi
 done
 `)
-	if spec.passwordLoginWanted() {
+	if spec.PasswordLoginWanted() {
 		// Password logins are off in most bootc images. The spec asked for
 		// passwords, so they are turned on for this disposable test VM — and
 		// only in the derived image, never in the published one.
@@ -430,8 +430,9 @@ EOF
 	return b.String()
 }
 
-// passwordLoginWanted reports whether any account got a password.
-func (s *Spec) passwordLoginWanted() bool {
+// PasswordLoginWanted reports whether any account got a password.
+// Exported for use by pkg/image/layer; pkg/vmtest also uses it.
+func (s *Spec) PasswordLoginWanted() bool {
 	if s.RootPassword != "" {
 		return true
 	}

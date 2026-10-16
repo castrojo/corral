@@ -68,7 +68,7 @@ type Layered struct {
 // artifact directory, so a failed build leaves the exact Containerfile behind.
 func BuildLayer(spec *Spec, authorizedKey, contextDir string, progress func(string)) (Layered, error) {
 	result := Layered{Image: spec.Bootc, Base: spec.Bootc}
-	if !spec.needsLayer() {
+	if !spec.NeedsLayer() {
 		report(progress, "no users, packages or hooks requested — testing %s exactly as published", spec.Bootc)
 		return result, nil
 	}

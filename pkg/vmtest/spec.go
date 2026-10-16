@@ -361,9 +361,10 @@ func (s *Spec) kargs() []string {
 	return append([]string{SerialKarg}, s.Kargs...)
 }
 
-// imageScripts and bootScripts split provision entries by when they run.
-func (s *Spec) imageScripts() []string { return s.scriptsFor(true) }
-func (s *Spec) bootScripts() []string  { return s.scriptsFor(false) }
+// ImageScripts and BootScripts split provision entries by when they run.
+// Exported for use by pkg/image/layer; pkg/vmtest also uses them.
+func (s *Spec) ImageScripts() []string { return s.scriptsFor(true) }
+func (s *Spec) BootScripts() []string  { return s.scriptsFor(false) }
 
 func (s *Spec) scriptsFor(image bool) []string {
 	var out []string
@@ -378,12 +379,13 @@ func (s *Spec) scriptsFor(image bool) []string {
 	return out
 }
 
-// needsLayer reports whether anything asked for would change the image. When
+// NeedsLayer reports whether anything asked for would change the image. When
 // nothing does, the image under test is booted exactly as published.
-func (s *Spec) needsLayer() bool {
+// Exported for use by pkg/image/layer; pkg/vmtest also uses it.
+func (s *Spec) NeedsLayer() bool {
 	return len(s.Users) > 0 || s.RootPassword != "" || len(s.Packages) > 0 ||
 		len(s.ExtraRun) > 0 || len(s.Files) > 0 ||
-		len(s.imageScripts()) > 0 || len(s.bootScripts()) > 0
+		len(s.ImageScripts()) > 0 || len(s.BootScripts()) > 0
 }
 
 // normalizeSize turns Lima's sizes into the ones pkg/qemu and bootc use:

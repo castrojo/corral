@@ -90,7 +90,7 @@ func TestParse_FullSpec(t *testing.T) {
 	if got := spec.bootScripts(); len(got) != 1 || !strings.Contains(got[0], "booted") {
 		t.Errorf("boot scripts = %v", got)
 	}
-	if !spec.needsLayer() {
+	if !spec.NeedsLayer() {
 		t.Error("a spec with users, packages and files needs a layer")
 	}
 	if spec.FailMarker != "YELLOWFIN_FAIL" || spec.Filesystem != "ext4" {
@@ -128,7 +128,7 @@ func TestWithDefaults(t *testing.T) {
 	if spec.Screenshots.Interval.Duration() != DefaultFrameInterval {
 		t.Errorf("interval = %s", spec.Screenshots.Interval.Duration())
 	}
-	if spec.needsLayer() {
+	if spec.NeedsLayer() {
 		t.Error("a spec that asked for nothing must not build a layer")
 	}
 }
@@ -221,13 +221,13 @@ func TestPasswordFor(t *testing.T) {
 }
 
 func TestPasswordLoginWanted(t *testing.T) {
-	if (&Spec{}).passwordLoginWanted() {
+	if (&Spec{}).PasswordLoginWanted() {
 		t.Error("no passwords means no password logins")
 	}
-	if !(&Spec{RootPassword: "x"}).passwordLoginWanted() {
+	if !(&Spec{RootPassword: "x"}).PasswordLoginWanted() {
 		t.Error("a root password wants password logins")
 	}
-	if !(&Spec{Users: []User{{Name: "a", Password: "x"}}}).passwordLoginWanted() {
+	if !(&Spec{Users: []User{{Name: "a", Password: "x"}}}).PasswordLoginWanted() {
 		t.Error("a user password wants password logins")
 	}
 }
@@ -257,7 +257,7 @@ func TestNeedsLayer_EachTrigger(t *testing.T) {
 		"files":     {Files: []File{{Path: "/a"}}},
 		"provision": {Provision: []Provision{{Script: "true"}}},
 	} {
-		if !spec.needsLayer() {
+		if !spec.NeedsLayer() {
 			t.Errorf("%s should need a layer", name)
 		}
 	}
