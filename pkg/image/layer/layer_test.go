@@ -25,7 +25,7 @@ func testSpec() *vmtest.Spec {
 		ExtraRun: []string{"dnf config-manager --set-enabled crb"},
 		Files:    []vmtest.File{{Path: "/etc/corral-test.conf", Content: "hello\n", Mode: "0600"}},
 		Provision: []vmtest.Provision{
-			{Mode: ImageMode, Script: "echo built-at-build-time"},
+			{Mode: vmtest.ImageMode, Script: "echo built-at-build-time"},
 			{Mode: "system", Script: "systemctl is-active sshd"},
 		},
 	}
@@ -197,7 +197,7 @@ func TestServiceScript(t *testing.T) {
 	}
 
 	// And nothing is loosened when no password was asked for.
-	plain := serviceScript(&Spec{})
+	plain := serviceScript(&vmtest.Spec{})
 	if strings.Contains(plain, "PasswordAuthentication") {
 		t.Error("sshd must be left as the image ships it when no password was set")
 	}
