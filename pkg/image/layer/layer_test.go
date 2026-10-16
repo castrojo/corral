@@ -343,7 +343,7 @@ func TestShebang(t *testing.T) {
 }
 
 func TestDerivedTag(t *testing.T) {
-	if got := DerivedTag("gate"); got != "localhost/corral-vmtest/gate:latest" {
+	if got := vmtest.DerivedTag("gate"); got != "localhost/corral-vmtest/gate:latest" {
 		t.Errorf("DerivedTag = %q", got)
 	}
 }
