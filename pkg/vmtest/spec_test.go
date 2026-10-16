@@ -83,11 +83,11 @@ func TestParse_FullSpec(t *testing.T) {
 	if len(spec.Users) != 1 || !spec.Users[0].Sudo || spec.Users[0].Password != "hunter2" {
 		t.Errorf("users = %+v", spec.Users)
 	}
-	if got := spec.imageScripts(); len(got) != 1 || !strings.Contains(got[0], "built") {
+	if got := spec.ImageScripts(); len(got) != 1 || !strings.Contains(got[0], "built") {
 		t.Errorf("image scripts = %v", got)
 	}
 	// Lima's "system" mode means "on the guest", so it is a boot script here.
-	if got := spec.bootScripts(); len(got) != 1 || !strings.Contains(got[0], "booted") {
+	if got := spec.BootScripts(); len(got) != 1 || !strings.Contains(got[0], "booted") {
 		t.Errorf("boot scripts = %v", got)
 	}
 	if !spec.NeedsLayer() {
