@@ -30,12 +30,16 @@ type ServerState struct {
 func NewServerState() (*ServerState, error) {
 	s, err := registry.NewStore()
 	if err != nil {
-		return nil, err
+		s = nil
+	}
+	runner := defaultRunner
+	if runner == nil {
+		runner = shell.DefaultKubectl
 	}
 	return &ServerState{
 		store:         s,
 		consoleDialer: kubevirt.RealConsoleDialer{},
-		commandRunner: shell.DefaultKubectl,
+		commandRunner: runner,
 	}, nil
 }
 
