@@ -47,6 +47,14 @@ var staticFS embed.FS
 
 var store *registry.Store
 
+// StrictOrigin refuses WebSocket upgrades whose Origin does not match the
+// server host, even when no authentication is configured. It is off by
+// default (back-compat: the UI is single-user and open), and exists for
+// local-only single-user serving — e.g. the try-tuna-desktop one-liner —
+// where a foreign-Origin browser page must not be able to drive the
+// VNC/TTY/RDP console bridges. Bound to --strict-origin on `corral web`.
+var StrictOrigin bool
+
 // Serve starts the web UI on addr and blocks.
 func Serve(addr string) error {
 	if s, err := registry.NewStore(); err == nil {
@@ -204,7 +212,7 @@ func newMux() (http.Handler, error) {
 		return websocket.Server{
 			Handler: h,
 			Handshake: func(cfg *websocket.Config, r *http.Request) error {
-				if !authenticationRequired() {
+				if !authenticationRequired() && !StrictOrigin {
 					return nil
 				}
 				if r.Header.Get("Corral-Service-Identity") != "" {
