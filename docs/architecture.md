@@ -271,14 +271,15 @@ Browser: Console tab → VNC or Serial
 ## Build & CI
 
 [`CONTRIBUTING.md`](../CONTRIBUTING.md) and [`Justfile`](../Justfile) are
-authoritative for local validation. The pre-push gate checks formatting, vets,
-plain and `bootc` tag sets; a separate target covers the browser client's ES
-modules. `Containerfile` packages the CLI with `kubectl` and `virtctl` for
-cluster deployment.
+authoritative for local validation. This gate checks format, vet, build, race
+tests, and lint for both plain and `bootc` tag sets. A separate target runs
+checks on browser modules. `Containerfile` packages the CLI with `kubectl` and
+`virtctl` for cluster deployment.
 
-For web reachability, authentication, probes, and always-on versus on-demand
-operation, see [deployment modes](deployment-modes.md). The deployment
-manifests listed above are the source of truth for the cluster shape.
+For web reachability, authentication, probes, and operation modes, see
+[deployment modes](deployment-modes.md).
+The deployment manifests listed above are the source of truth for the cluster
+shape.
 
 ## On-cluster deployment
 
