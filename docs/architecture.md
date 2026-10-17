@@ -96,12 +96,22 @@ marketplace/      Plugin registry (hosted at tuna-os/corral)
 └── index.json    plugin entries (name, description, version, platform download URLs)
 
 deploy/           On-cluster manifests
-└── corral-web.yaml  Namespace, SA, ClusterRole, Deployment, Service, Tailscale Ingress
+├── corral-web.yaml             production namespace, RBAC, web Deployment, Service, Tailscale Ingress
+├── corral-web-e2e.yaml         isolated web Deployment for live end-to-end tests
+├── corral-web-servicemonitor.yaml  optional Prometheus Operator scrape config
+├── corral-web-alerts.yaml      optional PrometheusRule alerts for collection health
+├── registry-cache.yaml         optional pull-through cache for bootc image pulls
+├── multus/                     pinned Multus DaemonSet and test NetworkAttachmentDefinition
+└── grafana/corral-dashboard.json  Grafana fleet-health dashboard
 
 docs/             Documentation
 ├── api.md           REST API reference
 ├── architecture.md  This file
-├── adr/             Architecture Decision Records (0001-0005)
+├── adr/             Architecture Decision Records (0001-0013)
+├── deployment-modes.md  web reachability, authentication, and supervision modes
+├── backend-*.md     backend support, parity, and setup guides
+├── testing.md, troubleshooting.md, user-guide.md
+├── rfc/, runbooks/, releases/, blog/, research/
 └── kubevirt-proxmox-setup.md  From-scratch cluster setup guide
 
 scripts/          CI and Docker helper scripts
@@ -260,17 +270,15 @@ Browser: Console tab → VNC or Serial
 
 ## Build & CI
 
-```
-go build -o corral .          # core binary (no bootc)
-go build -tags bootc -o corral .  # with bootc pipeline
+[`CONTRIBUTING.md`](../CONTRIBUTING.md) and [`Justfile`](../Justfile) are
+authoritative for local validation. The pre-push gate checks formatting, vets,
+plain and `bootc` tag sets; a separate target covers the browser client's ES
+modules. `Containerfile` packages the CLI with `kubectl` and `virtctl` for
+cluster deployment.
 
-# Container image (for on-cluster deployment)
-docker build -t ghcr.io/tuna-os/corral .
-# → Alpine + corral + kubectl + virtctl
-
-# CI (.github/workflows/ci.yml)
-# → go test ./..., go vet ./..., docker build, push to ghcr.io
-```
+For web reachability, authentication, probes, and always-on versus on-demand
+operation, see [deployment modes](deployment-modes.md). The deployment
+manifests listed above are the source of truth for the cluster shape.
 
 ## On-cluster deployment
 
