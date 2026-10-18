@@ -33,7 +33,7 @@ const customizeTagBase = "localhost/corral-bootc-customize"
 // in order. Same inputs, same tag: a cache hit skips tacklebox entirely.
 func customizeTag(image string, scripts []string) (string, error) {
 	h := sha256.New()
-	io.WriteString(h, image)
+	_, _ = io.WriteString(h, image)
 	h.Write([]byte{0})
 	for _, s := range scripts {
 		body, err := os.ReadFile(s)
