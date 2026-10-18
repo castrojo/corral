@@ -84,6 +84,14 @@ func (b LocalBuilder) Build(req BuildRequest, progress func(string)) (BuildResul
 	if err := b.fetch(req.Image, report); err != nil {
 		return BuildResult{}, err
 	}
+	// Customization happens on the image, before anything reads it: the
+	// backend probe and the install both see the derived image, never the
+	// half-customized original.
+	image, err := b.customizeImage(req, report)
+	if err != nil {
+		return BuildResult{}, err
+	}
+	req.Image = image
 
 	backend, err := b.DetectBackend(req.Image)
 	if err != nil {

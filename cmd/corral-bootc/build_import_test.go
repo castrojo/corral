@@ -56,7 +56,7 @@ func (f *fakeTarget) Import(ref types.InstanceRef, disk string, opts bootc.Creat
 
 // runBuildAndImport swaps in the fakes, captures stderr (buildAndImport
 // reports prerequisites and progress there), and runs the flow.
-func runBuildAndImport(t *testing.T, fb *fakeBuilder, ft *fakeTarget, useRealTarget bool, target config.ContextConfig, image, sshKey, disk string, useSudo bool) (string, error) {
+func runBuildAndImport(t *testing.T, fb *fakeBuilder, ft *fakeTarget, useRealTarget bool, target config.ContextConfig, image, sshKey, disk string, customize []string, useSudo bool) (string, error) {
 	t.Helper()
 	oldBuilder, oldTarget := newBuilder, targetFor
 	newBuilder = func(sudo bool) bootc.Builder {
@@ -74,7 +74,7 @@ func runBuildAndImport(t *testing.T, fb *fakeBuilder, ft *fakeTarget, useRealTar
 	}
 	oldErr := os.Stderr
 	os.Stderr = w
-	runErr := buildAndImport("myvm", target, image, sshKey, disk, "4G", 2, "", nil, useSudo)
+	runErr := buildAndImport("myvm", target, image, sshKey, disk, "4G", 2, "", nil, customize, useSudo)
 	_ = w.Close()
 	os.Stderr = oldErr
 	out, _ := io.ReadAll(r)
@@ -87,7 +87,7 @@ func TestBuildAndImport(t *testing.T) {
 
 	t.Run("missing image", func(t *testing.T) {
 		fb, ft := &fakeBuilder{}, &fakeTarget{}
-		_, err := runBuildAndImport(t, fb, ft, false, qemuTarget, "", "ssh-ed25519 AAAAtest", "20G", false)
+		_, err := runBuildAndImport(t, fb, ft, false, qemuTarget, "", "ssh-ed25519 AAAAtest", "20G", nil, false)
 		if err == nil || !strings.Contains(err.Error(), "--image is required") {
 			t.Fatalf("err = %v, want missing --image error", err)
 		}
@@ -97,7 +97,7 @@ func TestBuildAndImport(t *testing.T) {
 		fb := &fakeBuilder{}
 		// Real TargetFor: incus is a documented rejection (see TargetFor).
 		_, err := runBuildAndImport(t, fb, nil, true,
-			config.ContextConfig{Name: "x", Backend: "incus"}, "quay.io/fedora/fedora-bootc:41", "ssh-ed25519 AAAAtest", "20G", false)
+			config.ContextConfig{Name: "x", Backend: "incus"}, "quay.io/fedora/fedora-bootc:41", "ssh-ed25519 AAAAtest", "20G", nil, false)
 		if err == nil || !strings.Contains(err.Error(), "incus") {
 			t.Fatalf("err = %v, want incus unsupported error", err)
 		}
@@ -106,7 +106,7 @@ func TestBuildAndImport(t *testing.T) {
 	t.Run("unavailable builder reports target requirements", func(t *testing.T) {
 		fb := &fakeBuilder{availErr: errors.New("podman not found")}
 		ft := &fakeTarget{requires: []string{"qemu-img", "libvirt daemon"}}
-		stderr, err := runBuildAndImport(t, fb, ft, false, qemuTarget, "quay.io/fedora/fedora-bootc:41", "ssh-ed25519 AAAAtest", "20G", true)
+		stderr, err := runBuildAndImport(t, fb, ft, false, qemuTarget, "quay.io/fedora/fedora-bootc:41", "ssh-ed25519 AAAAtest", "20G", nil, true)
 		if err == nil || !strings.Contains(err.Error(), "podman not found") {
 			t.Fatalf("err = %v, want podman error", err)
 		}
@@ -126,7 +126,7 @@ func TestBuildAndImport(t *testing.T) {
 	t.Run("build failure", func(t *testing.T) {
 		fb := &fakeBuilder{buildErr: errors.New("bootc install failed")}
 		ft := &fakeTarget{}
-		_, err := runBuildAndImport(t, fb, ft, false, qemuTarget, "quay.io/fedora/fedora-bootc:41", "", "20G", false)
+		_, err := runBuildAndImport(t, fb, ft, false, qemuTarget, "quay.io/fedora/fedora-bootc:41", "", "20G", nil, false)
 		if err == nil || !strings.Contains(err.Error(), "bootc install failed") {
 			t.Fatalf("err = %v, want build error", err)
 		}
@@ -145,7 +145,7 @@ func TestBuildAndImport(t *testing.T) {
 		}
 		fb := &fakeBuilder{result: bootc.BuildResult{Path: built}}
 		ft := &fakeTarget{importErr: errors.New("virsh define failed")}
-		_, err := runBuildAndImport(t, fb, ft, false, qemuTarget, "quay.io/fedora/fedora-bootc:41", "ssh-ed25519 AAAAtest", "20G", false)
+		_, err := runBuildAndImport(t, fb, ft, false, qemuTarget, "quay.io/fedora/fedora-bootc:41", "ssh-ed25519 AAAAtest", "20G", nil, false)
 		if err == nil || !strings.Contains(err.Error(), "virsh define failed") {
 			t.Fatalf("err = %v, want import error", err)
 		}
@@ -164,7 +164,7 @@ func TestBuildAndImport(t *testing.T) {
 		// Empty disk exercises the 20G default.
 		stderr, err := runBuildAndImport(t, fb, ft, false,
 			config.ContextConfig{Name: "local", Backend: "qemu", Context: "myctx"},
-			"quay.io/fedora/fedora-bootc:41", "ssh-ed25519 AAAAtest", "", false)
+			"quay.io/fedora/fedora-bootc:41", "ssh-ed25519 AAAAtest", "", nil, false)
 		if err != nil {
 			t.Fatalf("buildAndImport: %v", err)
 		}
@@ -191,4 +191,111 @@ func TestBuildAndImport(t *testing.T) {
 			t.Errorf("stderr missing creation notice:\n%s", stderr)
 		}
 	})
+}
+
+func TestBuildAndImport_CustomizeReachesBuilder(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	qemuTarget := config.ContextConfig{Name: "local", Backend: "qemu", Context: "local"}
+	script := filepath.Join(t.TempDir(), "add-user.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nuseradd -m tuna\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fb, ft := &fakeBuilder{}, &fakeTarget{}
+	_, err := runBuildAndImport(t, fb, ft, false, qemuTarget,
+		"quay.io/fedora/fedora-bootc:41", "ssh-ed25519 AAAAtest", "20G",
+		[]string{script}, false)
+	if err != nil {
+		t.Fatalf("buildAndImport: %v", err)
+	}
+	if len(fb.reqSeen.Customize) != 1 || fb.reqSeen.Customize[0] != script {
+		t.Errorf("customize = %v, want [%s]", fb.reqSeen.Customize, script)
+	}
+}
+
+// --customize and --customize-env reach the local build's BuildRequest.
+func TestCreateCustomizeFlagsReachBuildRequest(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("CORRAL_DEFAULT_BACKEND", "qemu")
+	script := filepath.Join(t.TempDir(), "add-user.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\nuseradd -m tuna\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fb, ft := &fakeBuilder{}, &fakeTarget{}
+	oldBuilder, oldTarget := newBuilder, targetFor
+	newBuilder = func(bool) bootc.Builder { return fb }
+	targetFor = func(string) (bootc.Target, error) { return ft, nil }
+	t.Cleanup(func() { newBuilder, targetFor = oldBuilder, oldTarget })
+
+	root := newRootCmd()
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	root.SetArgs([]string{"create", "gate", "--image", "quay.io/fedora/fedora-bootc:41",
+		"--ssh-key", "ssh-ed25519 AAAAtest",
+		"--customize", script})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if len(fb.reqSeen.Customize) != 1 || fb.reqSeen.Customize[0] != script {
+		t.Errorf("BuildRequest.Customize = %q, want [%s]", fb.reqSeen.Customize, script)
+	}
+}
+
+// A missing customize script fails before any build.
+func TestCreateRejectsMissingCustomizeScript(t *testing.T) {
+	fb := &fakeBuilder{}
+	oldBuilder := newBuilder
+	newBuilder = func(bool) bootc.Builder { return fb }
+	t.Cleanup(func() { newBuilder = oldBuilder })
+
+	root := newRootCmd()
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	root.SetArgs([]string{"create", "gate", "--image", "quay.io/fedora/fedora-bootc:41",
+		"--customize", filepath.Join(t.TempDir(), "missing.sh")})
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "customize script") {
+		t.Fatalf("err = %v, want a customize script error", err)
+	}
+	if fb.reqSeen.Image != "" {
+		t.Error("the build ran despite a missing --customize script")
+	}
+}
+
+// The kubevirt backend cannot run local scripts, so it says so instead of
+// silently ignoring them.
+func TestCreateCustomizeRejectedOnKubevirt(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", "")
+	cfgDir := filepath.Join(home, ".config", "corral")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.yaml"),
+		[]byte("contexts:\n- name: k8s\n  backend: kubevirt\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := filepath.Join(t.TempDir(), "add-user.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\ntrue\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fb := &fakeBuilder{}
+	oldBuilder := newBuilder
+	newBuilder = func(bool) bootc.Builder { return fb }
+	t.Cleanup(func() { newBuilder = oldBuilder })
+
+	root := newRootCmd()
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	root.SetArgs([]string{"create", "gate", "--context", "k8s",
+		"--image", "quay.io/fedora/fedora-bootc:41",
+		"--ssh-key", "ssh-ed25519 AAAAtest", "--customize", script})
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--customize") {
+		t.Fatalf("err = %v, want a --customize backend error", err)
+	}
+	if fb.reqSeen.Image != "" {
+		t.Error("the build ran despite kubevirt rejecting --customize")
+	}
 }

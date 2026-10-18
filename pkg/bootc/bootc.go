@@ -53,6 +53,9 @@ type BuildRequest struct {
 	// test harness can read it. They are installed once and survive reboots,
 	// which a -append on the hypervisor side would not.
 	Kargs []string
+	// Customize lists scripts applied to the image through tacklebox
+	// (`tacklebox customize-live`) before the disk build. Empty skips.
+	Customize []string
 }
 
 // BuildResult describes the disk produced.
