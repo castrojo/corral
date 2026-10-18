@@ -84,6 +84,14 @@ func (b LocalBuilder) Build(req BuildRequest, progress func(string)) (BuildResul
 	if err := b.fetch(req.Image, report); err != nil {
 		return BuildResult{}, err
 	}
+	// Customization happens on the image, before anything reads it: the
+	// backend probe and the install both see the derived image, never the
+	// half-customized original.
+	image, err := b.customizeImage(req, report)
+	if err != nil {
+		return BuildResult{}, err
+	}
+	req.Image = image
 
 	backend, err := b.DetectBackend(req.Image)
 	if err != nil {
@@ -537,7 +545,11 @@ func (QEMUTarget) Import(ref types.InstanceRef, disk string, opts CreateOpts) er
 		// VM of the same name may be replaced is the caller's decision, taken
 		// before the build; by here the disk is built and the name is claimed.
 		Force: true,
-		UEFI:  opts.UEFI,
+		// Bootc disks always carry a UEFI bootloader (systemd-boot or
+		// grub-efi via bootupd) — a BIOS VM hangs at SeaBIOS instead of
+		// booting. The libvirt target already asserts this; local QEMU
+		// must too, rather than inheriting the caller's firmware flag.
+		UEFI: true,
 	})
 }
 

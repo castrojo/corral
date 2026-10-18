@@ -82,7 +82,7 @@ var targetFor = bootc.TargetFor
 // then hand it to the backend's target. The split is the point of #130 — the
 // same built disk works for local QEMU and for libvirt, and neither needs a
 // cluster to produce it.
-func buildAndImport(name string, target config.ContextConfig, image, sshKey, disk, mem string, cpu int, filesystem string, kargs []string, useSudo bool) error {
+func buildAndImport(name string, target config.ContextConfig, image, sshKey, disk, mem string, cpu int, filesystem string, kargs, customize []string, useSudo bool) error {
 	if image == "" {
 		return fmt.Errorf("--image is required — a catalog name (see `corral bootc images`) or an OCI ref like quay.io/fedora/fedora-bootc:41")
 	}
@@ -118,6 +118,7 @@ func buildAndImport(name string, target config.ContextConfig, image, sshKey, dis
 	built, err := builder.Build(bootc.BuildRequest{
 		Image: image, Dest: filepath.Join(workDir, name+".raw"),
 		Size: size, SSHKey: key, Filesystem: filesystem, Kargs: kargs,
+		Customize: customize,
 	}, func(msg string) { fmt.Fprintln(os.Stderr, msg) })
 	if err != nil {
 		return err
@@ -162,6 +163,7 @@ func newRootCmd() *cobra.Command {
 		namespace, disk, mem, sshKey, node, storageClass string
 		contextName, filesystem                          string
 		kargs                                            []string
+		customize                                        []string
 		cpu                                              int
 		resume, useSudo                                  bool
 	)
@@ -173,6 +175,9 @@ func newRootCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
 			if err := kubevirt.ValidateKargs(kargs); err != nil {
+				return err
+			}
+			if err := bootc.ValidateCustomize(customize); err != nil {
 				return err
 			}
 			ns := namespace
@@ -187,7 +192,10 @@ func newRootCmd() *cobra.Command {
 			}
 			if target.Backend != "kubevirt" {
 				image, _ := cmd.Flags().GetString("image")
-				return buildAndImport(name, target, image, sshKey, disk, mem, cpu, filesystem, kargs, useSudo)
+				return buildAndImport(name, target, image, sshKey, disk, mem, cpu, filesystem, kargs, customize, useSudo)
+			}
+			if len(customize) > 0 {
+				return fmt.Errorf("--customize runs scripts on this machine before the build, which the kubevirt backend cannot do — build locally (qemu context) or bake the customization into the image")
 			}
 			if !kubevirt.BootcAvailable() {
 				return fmt.Errorf("this corral-bootc build lacks the bootc pipeline (build with -tags bootc)")
@@ -251,6 +259,7 @@ func newRootCmd() *cobra.Command {
 	create.Flags().StringVarP(&storageClass, "storage-class", "s", "", "StorageClass for the disk PVC (default: cluster preference)")
 	create.Flags().BoolVar(&resume, "resume", false, "Finish a build that completed after a previous `create` was interrupted (with --karg: only if that build installed it)")
 	create.Flags().StringArrayVar(&kargs, "karg", nil, "Kernel argument to install into the boot entry, there from the first boot (repeatable)")
+	create.Flags().StringArrayVar(&customize, "customize", nil, "Script to run in the image before building the disk, e.g. to add users or packages (repeatable, local backends only)")
 	create.Flags().StringVar(&filesystem, "filesystem", "", "Override the root filesystem a local build would pick from the image (xfs for ostree, ext4 or btrfs for composefs)")
 	create.Flags().BoolVar(&useSudo, "sudo", false, "Run the local build's podman under sudo — bootc install needs root (off-cluster backends only)")
 

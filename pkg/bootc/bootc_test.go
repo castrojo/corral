@@ -752,3 +752,32 @@ func TestDetectBackend_RejectsUnknownImage(t *testing.T) {
 		t.Fatal("unknown image silently chose OSTree")
 	}
 }
+
+// A bootc disk always carries a UEFI bootloader. Importing it as BIOS
+// produces a VM that hangs at SeaBIOS instead of booting — the failure a
+// try-tuna drive hit on a host whose plain-create default is BIOS.
+func TestQEMUTarget_ForcesUEFI(t *testing.T) {
+	fake := withFake(t)
+	fake.AddPrefixResponse("/fake/bin/qemu-img", "", nil)
+
+	home := t.TempDir()
+	restoreHome, restoreCreate := vmHome, createLocalVM
+	vmHome = func() string { return home }
+	var got types.CreateOpts
+	createLocalVM = func(opts types.CreateOpts) error { got = opts; return nil }
+	t.Cleanup(func() { vmHome, createLocalVM = restoreHome, restoreCreate })
+
+	built := filepath.Join(t.TempDir(), "built.raw")
+	if err := os.WriteFile(built, []byte("disk"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := (QEMUTarget{}).Import(types.InstanceRef{Backend: "qemu", Name: "dev"}, built,
+		CreateOpts{CPU: 2, Memory: "4Gi", UEFI: false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.UEFI {
+		t.Error("Import inherited UEFI=false — the VM would hang at SeaBIOS instead of booting its UEFI bootloader")
+	}
+}
